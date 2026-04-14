@@ -8,11 +8,13 @@ import streamlit as st
 
 st.set_page_config(page_title="Student Research Agent", page_icon="🎓", layout="wide")
 
+
 def _get_backend_url():
     try:
         return st.secrets["BACKEND_URL"]
     except Exception:
         return os.getenv("BACKEND_URL", "").strip()
+
 
 BACKEND_URL = _get_backend_url()
 TIMEOUT = 120
@@ -48,6 +50,11 @@ if "indexed_file" not in st.session_state:
     st.session_state.indexed_file = None
 if "upload_key" not in st.session_state:
     st.session_state.upload_key = 0
+if "document_text" not in st.session_state:
+    st.session_state.document_text = ""
+if "pages_data" not in st.session_state:
+    st.session_state.pages_data = []
+
 
 def get_badge(action):
     mapping = {
@@ -62,16 +69,18 @@ def get_badge(action):
     label, css = mapping.get(action, (action.replace("_", " ").title(), "clarify"))
     return f'<span class="action-badge badge-{css}">{label}</span>'
 
-def local_extract_pdf(uploaded_file):
-    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+
+def local_extract_pdf(file_bytes, filename):
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
     pages = []
     full_text = []
     for i, page in enumerate(doc, start=1):
         text = page.get_text("text")
-        pages.append({"page": i, "text": text, "document": uploaded_file.name, "score": 1.0})
+        pages.append({"page": i, "text": text, "document": filename, "score": 1.0})
         full_text.append(f"\n--- Page {i} ---\n{text}")
     doc.close()
     return "\n".join(full_text), pages
+
 
 def call_backend(endpoint, method="get", **kwargs):
     if not BACKEND_URL:
@@ -100,6 +109,7 @@ def call_backend(endpoint, method="get", **kwargs):
     except Exception as e:
         return None, str(e)
 
+
 def simple_search(query, pages_data):
     q = query.lower().strip()
     hits = []
@@ -113,6 +123,7 @@ def simple_search(query, pages_data):
             hits.append({**p, "score": score})
     hits.sort(key=lambda x: x["score"], reverse=True)
     return hits[:4]
+
 
 def generate_offline_answer(query, mode):
     pages_data = st.session_state.get("pages_data", [])
@@ -156,6 +167,7 @@ def generate_offline_answer(query, mode):
     except Exception as e:
         return "refuse_if_no_evidence", f"AI error: {e}", sources
 
+
 def send_query(query_text, mode):
     query_text = query_text.strip()
     if not query_text:
@@ -195,6 +207,7 @@ def send_query(query_text, mode):
     st.session_state.history.append({"query": query_text, "action": data.get("action", "unknown")})
     st.rerun()
 
+
 with st.sidebar:
     st.markdown("## 🎓 Research Agent")
     if BACKEND_URL:
@@ -218,7 +231,12 @@ with st.sidebar:
     if uploaded is not None:
         try:
             with st.spinner(f"Processing {uploaded.name}..."):
-                file_bytes = uploaded.read()
+                file_bytes = uploaded.getvalue()
+
+                if not file_bytes:
+                    st.error("Uploaded file is empty.")
+                    st.stop()
+
                 if BACKEND_URL:
                     data, err = call_backend(
                         "/upload",
@@ -227,14 +245,14 @@ with st.sidebar:
                     )
                     if err:
                         st.warning(f"Backend upload failed, using local mode: {err}")
-                        text, pages = local_extract_pdf(uploaded)
+                        text, pages = local_extract_pdf(file_bytes, uploaded.name)
                         st.session_state.document_text = text
                         st.session_state.pages_data = pages
                         st.session_state.indexed_file = uploaded.name
                     else:
                         st.session_state.indexed_file = data.get("filename", uploaded.name)
                 else:
-                    text, pages = local_extract_pdf(uploaded)
+                    text, pages = local_extract_pdf(file_bytes, uploaded.name)
                     st.session_state.document_text = text
                     st.session_state.pages_data = pages
                     st.session_state.indexed_file = uploaded.name
