@@ -149,7 +149,7 @@ def generate_offline_answer(query, mode):
         from groq import Groq
         client = Groq(api_key=api_key)
         resp = client.chat.completions.create(
-            model="llama3-8b-8192",
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             max_tokens=1200,
